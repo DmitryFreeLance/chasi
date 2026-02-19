@@ -6,9 +6,11 @@ import com.pengrad.telegrambot.model.Message;
 import com.pengrad.telegrambot.model.PhotoSize;
 import com.pengrad.telegrambot.model.Update;
 import com.pengrad.telegrambot.model.User;
+import com.pengrad.telegrambot.request.DeleteMessage;
 import com.pengrad.telegrambot.request.GetFile;
 import com.pengrad.telegrambot.request.SendMessage;
 import com.pengrad.telegrambot.response.GetFileResponse;
+import com.pengrad.telegrambot.response.SendResponse;
 
 public class ClockBotApp {
     public static void main(String[] args) {
@@ -62,9 +64,13 @@ public class ClockBotApp {
 
     private static void handlePhotoMessage(Message message, TelegramBot bot, GeminiClient geminiClient,
                                            Database database, Config config) {
+        Long chatId = message.chat().id();
+        Integer pendingMessageId = sendPendingMessage(bot, chatId);
+
         PhotoSize best = pickBestPhoto(message.photo());
         if (best == null) {
-            bot.execute(new SendMessage(message.chat().id(),
+            deletePendingMessage(bot, chatId, pendingMessageId);
+            bot.execute(new SendMessage(chatId,
                 "Не удалось получить фото. Попробуйте еще раз."));
             return;
         }
@@ -72,7 +78,8 @@ public class ClockBotApp {
         String fileId = best.fileId();
         GetFileResponse getFileResponse = bot.execute(new GetFile(fileId));
         if (getFileResponse == null || !getFileResponse.isOk() || getFileResponse.file() == null) {
-            bot.execute(new SendMessage(message.chat().id(),
+            deletePendingMessage(bot, chatId, pendingMessageId);
+            bot.execute(new SendMessage(chatId,
                 "Не удалось скачать фото. Попробуйте другое изображение."));
             return;
         }
@@ -85,7 +92,8 @@ public class ClockBotApp {
             ? "Не удалось определить время. Попробуйте другое фото."
             : result.time();
 
-        bot.execute(new SendMessage(message.chat().id(), responseText));
+        deletePendingMessage(bot, chatId, pendingMessageId);
+        bot.execute(new SendMessage(chatId, responseText));
 
         User user = message.from();
         database.logRequest(new RequestLog(
@@ -97,6 +105,21 @@ public class ClockBotApp {
             result.status(),
             result.errorMessage()
         ));
+    }
+
+    private static Integer sendPendingMessage(TelegramBot bot, Long chatId) {
+        SendResponse response = bot.execute(new SendMessage(chatId, "Пишу ответ..."));
+        if (response == null || !response.isOk() || response.message() == null) {
+            return null;
+        }
+        return response.message().messageId();
+    }
+
+    private static void deletePendingMessage(TelegramBot bot, Long chatId, Integer messageId) {
+        if (messageId == null) {
+            return;
+        }
+        bot.execute(new DeleteMessage(chatId, messageId));
     }
 
     private static PhotoSize pickBestPhoto(PhotoSize[] photos) {
