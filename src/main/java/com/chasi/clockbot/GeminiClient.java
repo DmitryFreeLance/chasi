@@ -17,7 +17,7 @@ import java.time.Duration;
 public class GeminiClient {
     private static final String ENDPOINT = "/gemini-3-pro/v1/chat/completions";
     private static final int MAX_UPLOAD_BYTES = 9 * 1024 * 1024;
-    private static final int REQUEST_TIMEOUT_SECONDS = 180;
+    private static final int REQUEST_TIMEOUT_SECONDS = 600;
     private static final int MAX_ATTEMPTS = 3;
 
     private final HttpClient httpClient;
@@ -218,7 +218,7 @@ public class GeminiClient {
     }
 
     private void sleepBeforeRetry(int attempt) {
-        long delayMs = 2000L * attempt;
+        long delayMs = 10000L * attempt;
         try {
             Thread.sleep(delayMs);
         } catch (InterruptedException e) {
