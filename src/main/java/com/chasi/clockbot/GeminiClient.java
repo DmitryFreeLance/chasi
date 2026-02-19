@@ -55,9 +55,11 @@ public class GeminiClient {
         }
 
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            log("Gemini API error status=" + response.statusCode() + " body=" + truncate(response.body(), 1000));
             return GeminiResult.error("Bad response status: " + response.statusCode());
         }
 
+        log("Gemini API response status=" + response.statusCode() + " body=" + truncate(response.body(), 2000));
         return parseResponse(response.body());
     }
 
@@ -100,15 +102,40 @@ public class GeminiClient {
         try {
             JsonNode root = mapper.readTree(body);
             JsonNode contentNode = root.at("/choices/0/message/content");
-            if (contentNode.isMissingNode()) {
+            if (contentNode.isMissingNode() || contentNode.isNull()) {
                 return GeminiResult.error("Response missing content");
             }
-            String content = contentNode.asText();
-            String extracted = extractTimeFromContent(content);
-            return GeminiResult.ok(extracted, content);
+            String extracted;
+            String rawContent;
+            if (contentNode.isObject()) {
+                JsonNode timeNode = contentNode.get("time");
+                rawContent = contentNode.toString();
+                extracted = timeNode != null ? TimeNormalizer.normalize(timeNode.asText()) : "UNKNOWN";
+            } else {
+                rawContent = contentNode.asText();
+                extracted = extractTimeFromContent(rawContent);
+            }
+            if ("UNKNOWN".equals(extracted)) {
+                log("Gemini parsed UNKNOWN from content=" + truncate(rawContent, 1000));
+            }
+            return GeminiResult.ok(extracted, rawContent);
         } catch (IOException e) {
             return GeminiResult.error("Failed to parse response: " + e.getMessage());
         }
+    }
+
+    private void log(String message) {
+        System.out.println("[GeminiClient] " + message);
+    }
+
+    private String truncate(String value, int max) {
+        if (value == null) {
+            return "null";
+        }
+        if (value.length() <= max) {
+            return value;
+        }
+        return value.substring(0, max) + "...";
     }
 
     private String extractTimeFromContent(String content) {
