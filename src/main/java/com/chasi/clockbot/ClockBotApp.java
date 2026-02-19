@@ -108,6 +108,12 @@ public class ClockBotApp {
             ? fileName
             : fileNameFromPath(filePath, fileId);
         byte[] imageBytes = downloadTelegramFile(imageUrl);
+        ProcessedImage processed = ImagePreprocessor.preprocess(imageBytes, resolvedFileName);
+        if (processed != null && processed.bytes() != null) {
+            logImageSize(imageBytes, processed.bytes());
+            imageBytes = processed.bytes();
+            resolvedFileName = processed.fileName();
+        }
 
         GeminiResult result = geminiClient.extractTime(imageUrl, imageBytes, resolvedFileName);
         String responseText = result.time().equals("UNKNOWN")
@@ -206,5 +212,15 @@ public class ClockBotApp {
             return fallback + ".jpg";
         }
         return name;
+    }
+
+    private static void logImageSize(byte[] original, byte[] processed) {
+        if (original == null || processed == null) {
+            return;
+        }
+        if (original.length == processed.length) {
+            return;
+        }
+        System.out.println("[ClockBot] Image bytes " + original.length + " -> " + processed.length);
     }
 }
