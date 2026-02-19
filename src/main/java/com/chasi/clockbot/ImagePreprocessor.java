@@ -14,8 +14,8 @@ import java.io.IOException;
 import java.util.Iterator;
 
 public class ImagePreprocessor {
-    private static final int MAX_DIMENSION = 1280;
-    private static final long MAX_BYTES_BEFORE = 2_000_000;
+    private static final int MAX_DIMENSION = 1024;
+    private static final long MAX_BYTES_BEFORE = 1_000_000;
 
     public static ProcessedImage preprocess(byte[] bytes, String fileName) {
         if (bytes == null || bytes.length == 0) {
@@ -42,7 +42,7 @@ public class ImagePreprocessor {
         int newHeight = (int) Math.max(1, Math.round(height * scale));
 
         BufferedImage output = shouldResize ? resize(image, newWidth, newHeight) : toRgb(image);
-        byte[] encoded = encodeJpeg(output, 0.85f);
+        byte[] encoded = encodeJpeg(output, 0.75f);
         if (encoded == null || encoded.length == 0) {
             return new ProcessedImage(bytes, fileName);
         }

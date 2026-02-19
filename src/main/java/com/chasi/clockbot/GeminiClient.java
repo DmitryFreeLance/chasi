@@ -211,11 +211,13 @@ public class GeminiClient {
             || msg.contains("bad response status: 502")
             || msg.contains("bad response status: 503")
             || msg.contains("bad response status: 504")
+            || msg.contains("bad response status: 524")
             || msg.contains("api error code=429")
             || msg.contains("api error code=500")
             || msg.contains("api error code=502")
             || msg.contains("api error code=503")
-            || msg.contains("api error code=504");
+            || msg.contains("api error code=504")
+            || msg.contains("api error code=524");
     }
 
     private void sleepBeforeRetry(int attempt) {
