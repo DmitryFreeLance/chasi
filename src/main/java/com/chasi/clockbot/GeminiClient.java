@@ -11,11 +11,14 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 
 public class GeminiClient {
     private static final String ENDPOINT = "/gemini-3-pro/v1/chat/completions";
     private static final int MAX_UPLOAD_BYTES = 9 * 1024 * 1024;
+    private static final int REQUEST_TIMEOUT_SECONDS = 180;
+    private static final int MAX_ATTEMPTS = 3;
 
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
@@ -40,30 +43,53 @@ public class GeminiClient {
             return GeminiResult.error("Payload build failed: " + e.getMessage());
         }
 
+        GeminiResult result = null;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            result = sendRequest(payload, attempt);
+            if (result != null && "ok".equals(result.status())) {
+                return result;
+            }
+            if (attempt < MAX_ATTEMPTS && isRetryable(result)) {
+                sleepBeforeRetry(attempt);
+                continue;
+            }
+            return result;
+        }
+
+        return result == null ? GeminiResult.error("Request failed") : result;
+    }
+
+    private GeminiResult sendRequest(String payload, int attempt) {
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create(config.kieApiBaseUrl() + ENDPOINT))
-            .timeout(Duration.ofSeconds(60))
+            .timeout(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS))
             .header("Authorization", "Bearer " + config.kieApiKey())
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(payload))
             .build();
 
         HttpResponse<String> response;
+        long startedAt = System.currentTimeMillis();
         try {
             response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (HttpTimeoutException e) {
+            return GeminiResult.error("Request timed out: " + e.getMessage());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return GeminiResult.error("Request interrupted: " + e.getMessage());
         } catch (IOException e) {
             return GeminiResult.error("Request failed: " + e.getMessage());
         }
+        long durationMs = System.currentTimeMillis() - startedAt;
 
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            log("Gemini API error status=" + response.statusCode() + " body=" + truncate(response.body(), 1000));
+            log("Gemini API error status=" + response.statusCode() + " durationMs=" + durationMs
+                + " body=" + truncate(response.body(), 1000));
             return GeminiResult.error("Bad response status: " + response.statusCode());
         }
 
-        log("Gemini API response status=" + response.statusCode() + " body=" + truncate(response.body(), 2000));
+        log("Gemini API response status=" + response.statusCode() + " durationMs=" + durationMs
+            + " body=" + truncate(response.body(), 2000));
         return parseResponse(response.body());
     }
 
@@ -135,8 +161,9 @@ public class GeminiClient {
             JsonNode root = mapper.readTree(body);
             JsonNode codeNode = root.get("code");
             if (codeNode != null && codeNode.isInt() && codeNode.asInt() != 200) {
+                int code = codeNode.asInt();
                 String msg = root.has("msg") ? root.get("msg").asText() : "API error";
-                return GeminiResult.error("API error: " + msg);
+                return GeminiResult.error("API error code=" + code + " msg=" + msg);
             }
             JsonNode successNode = root.get("success");
             if (successNode != null && successNode.isBoolean() && !successNode.asBoolean()) {
@@ -168,6 +195,35 @@ public class GeminiClient {
 
     private void log(String message) {
         System.out.println("[GeminiClient] " + message);
+    }
+
+    private boolean isRetryable(GeminiResult result) {
+        if (result == null || result.errorMessage() == null) {
+            return false;
+        }
+        String msg = result.errorMessage().toLowerCase();
+        return msg.contains("timed out")
+            || msg.contains("timeout")
+            || msg.contains("server exception")
+            || msg.contains("bad response status: 429")
+            || msg.contains("bad response status: 500")
+            || msg.contains("bad response status: 502")
+            || msg.contains("bad response status: 503")
+            || msg.contains("bad response status: 504")
+            || msg.contains("api error code=429")
+            || msg.contains("api error code=500")
+            || msg.contains("api error code=502")
+            || msg.contains("api error code=503")
+            || msg.contains("api error code=504");
+    }
+
+    private void sleepBeforeRetry(int attempt) {
+        long delayMs = 2000L * attempt;
+        try {
+            Thread.sleep(delayMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private String truncate(String value, int max) {

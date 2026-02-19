@@ -2,6 +2,7 @@ package com.chasi.clockbot;
 
 import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.UpdatesListener;
+import com.pengrad.telegrambot.model.Document;
 import com.pengrad.telegrambot.model.Message;
 import com.pengrad.telegrambot.model.PhotoSize;
 import com.pengrad.telegrambot.model.Update;
@@ -42,6 +43,12 @@ public class ClockBotApp {
                 continue;
             }
 
+            if (isImageDocument(message.document())) {
+                handleImageFile(message, message.document().fileId(), message.document().fileName(),
+                    bot, geminiClient, database, config);
+                continue;
+            }
+
             if (message.photo() != null && message.photo().length > 0) {
                 handlePhotoMessage(message, bot, geminiClient, database, config);
                 continue;
@@ -73,18 +80,20 @@ public class ClockBotApp {
 
     private static void handlePhotoMessage(Message message, TelegramBot bot, GeminiClient geminiClient,
                                            Database database, Config config) {
-        Long chatId = message.chat().id();
-        Integer pendingMessageId = sendPendingMessage(bot, chatId);
-
         PhotoSize best = pickBestPhoto(message.photo());
         if (best == null) {
-            deletePendingMessage(bot, chatId, pendingMessageId);
-            bot.execute(new SendMessage(chatId,
+            bot.execute(new SendMessage(message.chat().id(),
                 "Не удалось получить фото. Попробуйте еще раз."));
             return;
         }
+        handleImageFile(message, best.fileId(), null, bot, geminiClient, database, config);
+    }
 
-        String fileId = best.fileId();
+    private static void handleImageFile(Message message, String fileId, String fileName, TelegramBot bot,
+                                        GeminiClient geminiClient, Database database, Config config) {
+        Long chatId = message.chat().id();
+        Integer pendingMessageId = sendPendingMessage(bot, chatId);
+
         GetFileResponse getFileResponse = bot.execute(new GetFile(fileId));
         if (getFileResponse == null || !getFileResponse.isOk() || getFileResponse.file() == null) {
             deletePendingMessage(bot, chatId, pendingMessageId);
@@ -95,10 +104,12 @@ public class ClockBotApp {
 
         String filePath = getFileResponse.file().filePath();
         String imageUrl = "https://api.telegram.org/file/bot" + config.telegramToken() + "/" + filePath;
-        String fileName = fileNameFromPath(filePath, fileId);
+        String resolvedFileName = fileName != null && !fileName.isBlank()
+            ? fileName
+            : fileNameFromPath(filePath, fileId);
         byte[] imageBytes = downloadTelegramFile(imageUrl);
 
-        GeminiResult result = geminiClient.extractTime(imageUrl, imageBytes, fileName);
+        GeminiResult result = geminiClient.extractTime(imageUrl, imageBytes, resolvedFileName);
         String responseText = result.time().equals("UNKNOWN")
             ? "Не удалось определить время. Попробуйте другое фото."
             : result.time();
@@ -152,6 +163,14 @@ public class ClockBotApp {
             }
         }
         return best;
+    }
+
+    private static boolean isImageDocument(Document document) {
+        if (document == null) {
+            return false;
+        }
+        String mime = document.mimeType();
+        return mime != null && mime.startsWith("image/");
     }
 
     private static byte[] downloadTelegramFile(String url) {
