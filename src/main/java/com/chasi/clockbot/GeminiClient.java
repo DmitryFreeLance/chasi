@@ -89,11 +89,16 @@ public class GeminiClient {
 
         ObjectNode responseFormat = root.putObject("response_format");
         responseFormat.put("type", "json_schema");
-        ObjectNode properties = responseFormat.putObject("properties");
+        ObjectNode jsonSchema = responseFormat.putObject("json_schema");
+        jsonSchema.put("name", "clock_time");
+        ObjectNode schema = jsonSchema.putObject("schema");
+        schema.put("type", "object");
+        ObjectNode properties = schema.putObject("properties");
         ObjectNode time = properties.putObject("time");
         time.put("type", "string");
-        ArrayNode required = responseFormat.putArray("required");
+        ArrayNode required = schema.putArray("required");
         required.add("time");
+        schema.put("additionalProperties", false);
 
         return mapper.writeValueAsString(root);
     }
