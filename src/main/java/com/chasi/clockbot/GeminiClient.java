@@ -18,7 +18,7 @@ public class GeminiClient {
     private static final String ENDPOINT = "/gemini-3-pro/v1/chat/completions";
     private static final int MAX_UPLOAD_BYTES = 9 * 1024 * 1024;
     private static final int REQUEST_TIMEOUT_SECONDS = 600;
-    private static final int MAX_ATTEMPTS = 3;
+    private static final int MAX_ATTEMPTS = 5;
 
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
@@ -50,6 +50,7 @@ public class GeminiClient {
                 return result;
             }
             if (attempt < MAX_ATTEMPTS && isRetryable(result)) {
+                log("Retrying after error (attempt " + attempt + "): " + result.errorMessage());
                 sleepBeforeRetry(attempt);
                 continue;
             }
@@ -218,7 +219,10 @@ public class GeminiClient {
     }
 
     private void sleepBeforeRetry(int attempt) {
-        long delayMs = 10000L * attempt;
+        long delayMs = 30000L * attempt;
+        if (delayMs > 120_000L) {
+            delayMs = 120_000L;
+        }
         try {
             Thread.sleep(delayMs);
         } catch (InterruptedException e) {
