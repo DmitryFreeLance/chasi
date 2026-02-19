@@ -15,10 +15,12 @@ import java.time.Duration;
 
 public class GeminiClient {
     private static final String ENDPOINT = "/gemini-3-pro/v1/chat/completions";
+    private static final int MAX_UPLOAD_BYTES = 9 * 1024 * 1024;
 
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
     private final Config config;
+    private final KieFileUploader fileUploader;
 
     public GeminiClient(Config config) {
         this.config = config;
@@ -26,12 +28,14 @@ public class GeminiClient {
             .connectTimeout(Duration.ofSeconds(20))
             .build();
         this.mapper = new ObjectMapper();
+        this.fileUploader = new KieFileUploader(config);
     }
 
-    public GeminiResult extractTime(String imageUrl) {
+    public GeminiResult extractTime(String imageUrl, byte[] imageBytes, String fileName) {
+        String effectiveUrl = prepareImageUrl(imageUrl, imageBytes, fileName);
         String payload;
         try {
-            payload = buildPayload(imageUrl);
+            payload = buildPayload(effectiveUrl);
         } catch (JsonProcessingException e) {
             return GeminiResult.error("Payload build failed: " + e.getMessage());
         }
@@ -61,6 +65,29 @@ public class GeminiClient {
 
         log("Gemini API response status=" + response.statusCode() + " body=" + truncate(response.body(), 2000));
         return parseResponse(response.body());
+    }
+
+    private String prepareImageUrl(String fallbackUrl, byte[] imageBytes, String fileName) {
+        if (imageBytes == null || imageBytes.length == 0) {
+            log("Image bytes missing, using Telegram URL");
+            return fallbackUrl;
+        }
+
+        if (imageBytes.length > MAX_UPLOAD_BYTES) {
+            log("Image too large for base64 upload (" + imageBytes.length + " bytes), using Telegram URL");
+            return fallbackUrl;
+        }
+
+        String mimeType = MimeTypeResolver.fromFileName(fileName);
+        UploadResult upload = fileUploader.uploadBase64(imageBytes, fileName, mimeType);
+        if (upload.success() && upload.downloadUrl() != null && !upload.downloadUrl().isBlank()) {
+            log("Uploaded image to Kie.ai storage");
+            return upload.downloadUrl();
+        }
+
+        String reason = upload.errorMessage() == null ? "unknown" : upload.errorMessage();
+        log("Upload failed, using Telegram URL. reason=" + reason);
+        return fallbackUrl;
     }
 
     private String buildPayload(String imageUrl) throws JsonProcessingException {
@@ -106,6 +133,16 @@ public class GeminiClient {
     private GeminiResult parseResponse(String body) {
         try {
             JsonNode root = mapper.readTree(body);
+            JsonNode codeNode = root.get("code");
+            if (codeNode != null && codeNode.isInt() && codeNode.asInt() != 200) {
+                String msg = root.has("msg") ? root.get("msg").asText() : "API error";
+                return GeminiResult.error("API error: " + msg);
+            }
+            JsonNode successNode = root.get("success");
+            if (successNode != null && successNode.isBoolean() && !successNode.asBoolean()) {
+                String msg = root.has("msg") ? root.get("msg").asText() : "API error";
+                return GeminiResult.error("API error: " + msg);
+            }
             JsonNode contentNode = root.at("/choices/0/message/content");
             if (contentNode.isMissingNode() || contentNode.isNull()) {
                 return GeminiResult.error("Response missing content");

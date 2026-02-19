@@ -11,8 +11,17 @@ import com.pengrad.telegrambot.request.GetFile;
 import com.pengrad.telegrambot.request.SendMessage;
 import com.pengrad.telegrambot.response.GetFileResponse;
 import com.pengrad.telegrambot.response.SendResponse;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 
 public class ClockBotApp {
+    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(20))
+        .build();
     public static void main(String[] args) {
         Config config = Config.fromEnv();
         Database database = new Database(config.dbPath());
@@ -86,8 +95,10 @@ public class ClockBotApp {
 
         String filePath = getFileResponse.file().filePath();
         String imageUrl = "https://api.telegram.org/file/bot" + config.telegramToken() + "/" + filePath;
+        String fileName = fileNameFromPath(filePath, fileId);
+        byte[] imageBytes = downloadTelegramFile(imageUrl);
 
-        GeminiResult result = geminiClient.extractTime(imageUrl);
+        GeminiResult result = geminiClient.extractTime(imageUrl, imageBytes, fileName);
         String responseText = result.time().equals("UNKNOWN")
             ? "Не удалось определить время. Попробуйте другое фото."
             : result.time();
@@ -141,5 +152,40 @@ public class ClockBotApp {
             }
         }
         return best;
+    }
+
+    private static byte[] downloadTelegramFile(String url) {
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .timeout(Duration.ofSeconds(60))
+            .GET()
+            .build();
+        try {
+            HttpResponse<byte[]> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                System.err.println("Failed to download Telegram file. Status=" + response.statusCode());
+                return null;
+            }
+            return response.body();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            System.err.println("Download interrupted: " + e.getMessage());
+            return null;
+        } catch (IOException e) {
+            System.err.println("Download failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private static String fileNameFromPath(String filePath, String fallback) {
+        if (filePath == null || filePath.isBlank()) {
+            return fallback + ".jpg";
+        }
+        int index = filePath.lastIndexOf('/');
+        String name = index >= 0 ? filePath.substring(index + 1) : filePath;
+        if (name.isBlank()) {
+            return fallback + ".jpg";
+        }
+        return name;
     }
 }

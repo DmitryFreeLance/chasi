@@ -6,6 +6,7 @@ import java.util.Locale;
 public record Config(String telegramToken,
                      String kieApiKey,
                      String kieApiBaseUrl,
+                     String kieUploadBaseUrl,
                      String dbPath,
                      String systemPrompt) {
 
@@ -15,6 +16,7 @@ public record Config(String telegramToken,
         String telegramToken = readRequired("TELEGRAM_BOT_TOKEN");
         String kieApiKey = readRequired("KIE_API_KEY");
         String kieApiBaseUrl = readOptional("KIE_API_BASE_URL", "https://api.kie.ai");
+        String kieUploadBaseUrl = readOptional("KIE_UPLOAD_BASE_URL", "https://kieai.redpandaai.co");
         String dbPath = readOptional("DB_PATH", Path.of("data", "bot.db").toString());
         String systemPrompt = readOptional("GEMINI_SYSTEM_PROMPT", DEFAULT_PROMPT);
 
@@ -22,7 +24,14 @@ public record Config(String telegramToken,
             throw new IllegalArgumentException("System prompt must not contain '*' or '#'");
         }
 
-        return new Config(telegramToken, kieApiKey, normalizeBaseUrl(kieApiBaseUrl), dbPath, systemPrompt);
+        return new Config(
+            telegramToken,
+            kieApiKey,
+            normalizeBaseUrl(kieApiBaseUrl),
+            normalizeBaseUrl(kieUploadBaseUrl),
+            dbPath,
+            systemPrompt
+        );
     }
 
     private static String readRequired(String key) {

@@ -7,6 +7,7 @@
 - `TELEGRAM_BOT_TOKEN` — токен Telegram бота.
 - `KIE_API_KEY` — API ключ Kie.ai.
 - `KIE_API_BASE_URL` — базовый URL API (по умолчанию `https://api.kie.ai`).
+- `KIE_UPLOAD_BASE_URL` — базовый URL загрузки файлов (по умолчанию `https://kieai.redpandaai.co`).
 - `DB_PATH` — путь к SQLite базе (по умолчанию `data/bot.db`).
 - `GEMINI_SYSTEM_PROMPT` — системный промпт (по умолчанию задан в коде).
 
